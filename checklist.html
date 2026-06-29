@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>新居 必需品チェックリスト</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif; background: #f5f5f0; min-height: 100vh; }
+.header { background: #fff; padding: 1rem 1.25rem 0.75rem; border-bottom: 1px solid #e5e5e0; position: sticky; top: 0; z-index: 10; }
+.header h1 { font-size: 17px; font-weight: 600; color: #1a1a1a; display: flex; align-items: center; gap: 8px; }
+.header h1 span { font-size: 20px; }
+.sync-status { font-size: 12px; margin-top: 4px; display: flex; align-items: center; gap: 5px; }
+.sync-dot { width: 6px; height: 6px; border-radius: 50%; background: #ccc; flex-shrink: 0; transition: background 0.3s; }
+.sync-dot.connected { background: #34c759; }
+.sync-dot.syncing { background: #ff9500; }
+.sync-text { color: #888; }
+.progress-bar { height: 4px; background: #e5e5e0; margin: 0.6rem 0 0; border-radius: 2px; overflow: hidden; }
+.progress-fill { height: 100%; background: #007aff; border-radius: 2px; transition: width 0.3s ease; }
+.progress-text { font-size: 12px; color: #888; margin-top: 4px; }
+.category { background: #fff; margin: 0.75rem 0.75rem 0; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+.category:last-child { margin-bottom: 0.75rem; }
+.category-header { padding: 0.75rem 1rem; display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+.category-header:active { background: #f5f5f5; }
+.cat-emoji { font-size: 18px; width: 24px; text-align: center; }
+.cat-name { font-size: 15px; font-weight: 600; color: #1a1a1a; flex: 1; }
+.cat-badge { font-size: 12px; color: #888; background: #f0f0f0; padding: 2px 8px; border-radius: 10px; }
+.cat-badge.done { background: #e8f5e9; color: #2e7d32; }
+.cat-chevron { font-size: 12px; color: #ccc; transition: transform 0.2s; }
+.cat-chevron.open { transform: rotate(180deg); }
+.items { display: none; border-top: 1px solid #f0f0f0; }
+.items.open { display: block; }
+.item { display: flex; align-items: center; gap: 12px; padding: 0.7rem 1rem; border-bottom: 1px solid #f5f5f5; cursor: pointer; }
+.item:last-child { border-bottom: none; }
+.item:active { background: #f9f9f9; }
+.checkbox { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #d0d0d0; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; }
+.checkbox.checked { background: #007aff; border-color: #007aff; }
+.checkbox.checked::after { content: ''; width: 5px; height: 9px; border: 2px solid #fff; border-top: none; border-left: none; transform: rotate(45deg) translateY(-1px); display: block; }
+.item-label { font-size: 15px; color: #1a1a1a; flex: 1; transition: color 0.15s; }
+.item-label.checked { color: #bbb; text-decoration: line-through; }
+.footer { text-align: center; padding: 1rem; font-size: 12px; color: #bbb; margin-bottom: env(safe-area-inset-bottom); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span>🏠</span> 新居 必需品チェックリスト</h1>
+  <div class="sync-status">
+    <div class="sync-dot" id="syncDot"></div>
+    <span class="sync-text" id="syncText">接続中...</span>
+  </div>
+  <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+  <div class="progress-text" id="progressText">0 / 0 完了</div>
+</div>
+
+<div id="list"></div>
+
+<div class="footer">チェックは自動で2人に同期されます</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, onValue, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAMwNBJ0cR-I1f21QIQyO5fcfqGcRU5nVU",
+  authDomain: "hime-home.firebaseapp.com",
+  databaseURL: "https://hime-home-default-rtdb.firebaseio.com",
+  projectId: "hime-home",
+  storageBucket: "hime-home.firebasestorage.app",
+  messagingSenderId: "906546077890",
+  appId: "1:906546077890:web:ca99a075a0895a451d1b5b"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const checklistRef = ref(db, 'checklist');
+
+const data = [
+  { emoji: "🚿", name: "バス・洗面所", items: ["シャンプー","コンディショナー","ボディソープ","洗顔料","タオル（5枚以上）","バスマット","歯ブラシ","歯磨き粉","髭剃り・カミソリ","綿棒","ドライヤー"] },
+  { emoji: "🚽", name: "トイレ", items: ["トイレットペーパー","トイレ用洗剤","トイレブラシ","スタンプ","消臭剤"] },
+  { emoji: "🍳", name: "キッチン", items: ["食器用洗剤","スポンジ","台布巾・キッチンペーパー","ラップ","アルミホイル","ジップロック","ゴミ袋（燃えるゴミ・燃えないゴミ・資源ゴミ）"] },
+  { emoji: "👕", name: "洗濯", items: ["洗濯用洗剤","柔軟剤","ハンガー（5本以上）","洗濯ネット"] },
+  { emoji: "🧹", name: "掃除・衛生", items: ["フローリングワイパー","ワイパー替えシート","ハンドソープ"] },
+  { emoji: "🩹", name: "救急・衛生用品", items: ["ティッシュペーパー","ウェットティッシュ","絆創膏","体温計","常備薬（痛み止め・風邪薬）"] },
+  { emoji: "🔧", name: "生活小物", items: ["ハサミ","カッター","布テープ","メモ帳・ボールペン","延長コード","ゴミ箱"] },
+  { emoji: "🛏", name: "寝室・リビング", items: ["シーツ・枕カバー"] }
+];
+
+let state = {};
+let rendering = false;
+
+function makeKey(catName, item) {
+  return (catName + '_' + item).replace(/[.#$[\]/]/g, '_');
+}
+
+function updateProgress() {
+  let total = 0, checked = 0;
+  data.forEach(cat => cat.items.forEach(item => {
+    total++;
+    if (state[makeKey(cat.name, item)]) checked++;
+  }));
+  const pct = total ? Math.round(checked / total * 100) : 0;
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressText').textContent = checked + ' / ' + total + ' 完了';
+  data.forEach((cat, ci) => {
+    const done = cat.items.filter(i => state[makeKey(cat.name, i)]).length;
+    const badge = document.getElementById('badge' + ci);
+    if (badge) {
+      badge.textContent = done + '/' + cat.items.length;
+      badge.className = 'cat-badge' + (done === cat.items.length && cat.items.length > 0 ? ' done' : '');
+    }
+  });
+}
+
+function renderAll() {
+  const container = document.getElementById('list');
+  container.innerHTML = '';
+  data.forEach((cat, ci) => {
+    const div = document.createElement('div');
+    div.className = 'category';
+
+    const hdr = document.createElement('div');
+    hdr.className = 'category-header';
+    const done = cat.items.filter(i => state[makeKey(cat.name, i)]).length;
+    hdr.innerHTML = `<span class="cat-emoji">${cat.emoji}</span><span class="cat-name">${cat.name}</span><span class="cat-badge${done === cat.items.length && cat.items.length > 0 ? ' done' : ''}" id="badge${ci}">${done}/${cat.items.length}</span><span class="cat-chevron open" id="chv${ci}">▼</span>`;
+
+    const itemsDiv = document.createElement('div');
+    itemsDiv.className = 'items open';
+    itemsDiv.id = 'items' + ci;
+
+    cat.items.forEach(item => {
+      const key = makeKey(cat.name, item);
+      const checked = !!state[key];
+      const row = document.createElement('div');
+      row.className = 'item';
+      row.innerHTML = `<div class="checkbox${checked ? ' checked' : ''}" id="cb_${key}"></div><span class="item-label${checked ? ' checked' : ''}" id="lbl_${key}">${item}</span>`;
+      row.addEventListener('click', () => {
+        const newVal = !state[key];
+        state[key] = newVal;
+        document.getElementById('cb_' + key).className = 'checkbox' + (newVal ? ' checked' : '');
+        document.getElementById('lbl_' + key).className = 'item-label' + (newVal ? ' checked' : '');
+        updateProgress();
+        const dot = document.getElementById('syncDot');
+        dot.className = 'sync-dot syncing';
+        document.getElementById('syncText').textContent = '同期中...';
+        const updates = {};
+        updates[key] = newVal;
+        update(checklistRef, updates).then(() => {
+          dot.className = 'sync-dot connected';
+          document.getElementById('syncText').textContent = '同期済み';
+        });
+      });
+      itemsDiv.appendChild(row);
+    });
+
+    hdr.addEventListener('click', () => {
+      const open = !itemsDiv.classList.contains('open');
+      itemsDiv.classList.toggle('open', open);
+      document.getElementById('chv' + ci).className = 'cat-chevron' + (open ? ' open' : '');
+    });
+
+    div.appendChild(hdr);
+    div.appendChild(itemsDiv);
+    container.appendChild(div);
+  });
+  updateProgress();
+}
+
+onValue(checklistRef, (snapshot) => {
+  state = snapshot.val() || {};
+  const dot = document.getElementById('syncDot');
+  dot.className = 'sync-dot connected';
+  document.getElementById('syncText').textContent = '同期済み・リアルタイム更新中';
+  renderAll();
+});
+</script>
+</body>
+</html>
