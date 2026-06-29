@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>引越し手続き TODOリスト</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif; background: #f5f5f0; min-height: 100vh; }
+.header { background: #fff; padding: 1rem 1.25rem 0.75rem; border-bottom: 1px solid #e5e5e0; position: sticky; top: 0; z-index: 10; }
+.header h1 { font-size: 17px; font-weight: 600; color: #1a1a1a; display: flex; align-items: center; gap: 8px; }
+.header h1 span { font-size: 20px; }
+.sync-status { font-size: 12px; margin-top: 4px; display: flex; align-items: center; gap: 5px; }
+.sync-dot { width: 6px; height: 6px; border-radius: 50%; background: #ccc; flex-shrink: 0; transition: background 0.3s; }
+.sync-dot.connected { background: #34c759; }
+.sync-dot.syncing { background: #ff9500; }
+.sync-text { color: #888; }
+.progress-bar { height: 4px; background: #e5e5e0; margin: 0.6rem 0 0; border-radius: 2px; overflow: hidden; }
+.progress-fill { height: 100%; background: #ff9f0a; border-radius: 2px; transition: width 0.3s ease; }
+.progress-text { font-size: 12px; color: #888; margin-top: 4px; }
+.nav { display: flex; gap: 0; background: #fff; border-bottom: 1px solid #e5e5e0; }
+.nav a { flex: 1; text-align: center; padding: 0.6rem; font-size: 13px; color: #888; text-decoration: none; border-bottom: 2px solid transparent; }
+.nav a.active { color: #ff9f0a; border-bottom-color: #ff9f0a; font-weight: 600; }
+.phase-label { font-size: 11px; font-weight: 700; color: #fff; padding: 2px 10px; border-radius: 20px; margin: 1rem 0.75rem 0.25rem; display: inline-block; }
+.phase-before { background: #ff9f0a; }
+.phase-after { background: #30b050; }
+.category { background: #fff; margin: 0 0.75rem 0.5rem; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+.category-header { padding: 0.75rem 1rem; display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+.category-header:active { background: #f5f5f5; }
+.cat-emoji { font-size: 18px; width: 24px; text-align: center; }
+.cat-name { font-size: 15px; font-weight: 600; color: #1a1a1a; flex: 1; }
+.cat-badge { font-size: 12px; color: #888; background: #f0f0f0; padding: 2px 8px; border-radius: 10px; }
+.cat-badge.done { background: #e8f5e9; color: #2e7d32; }
+.cat-chevron { font-size: 12px; color: #ccc; transition: transform 0.2s; }
+.cat-chevron.open { transform: rotate(180deg); }
+.items { display: none; border-top: 1px solid #f0f0f0; }
+.items.open { display: block; }
+.item { display: flex; align-items: flex-start; gap: 12px; padding: 0.7rem 1rem; border-bottom: 1px solid #f5f5f5; cursor: pointer; }
+.item:last-child { border-bottom: none; }
+.item:active { background: #f9f9f9; }
+.checkbox { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #d0d0d0; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; margin-top: 1px; }
+.checkbox.checked { background: #ff9f0a; border-color: #ff9f0a; }
+.checkbox.checked::after { content: ''; width: 5px; height: 9px; border: 2px solid #fff; border-top: none; border-left: none; transform: rotate(45deg) translateY(-1px); display: block; }
+.item-text { flex: 1; }
+.item-label { font-size: 15px; color: #1a1a1a; transition: color 0.15s; line-height: 1.4; }
+.item-label.checked { color: #bbb; text-decoration: line-through; }
+.item-note { font-size: 12px; color: #aaa; margin-top: 2px; line-height: 1.4; }
+.deadline { font-size: 11px; font-weight: 600; color: #ff3b30; background: #fff0f0; padding: 1px 7px; border-radius: 8px; display: inline-block; margin-top: 3px; }
+.footer { text-align: center; padding: 1rem; font-size: 12px; color: #bbb; margin-bottom: env(safe-area-inset-bottom); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span>📋</span> 引越し手続き TODOリスト</h1>
+  <div class="sync-status">
+    <div class="sync-dot" id="syncDot"></div>
+    <span class="sync-text" id="syncText">接続中...</span>
+  </div>
+  <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+  <div class="progress-text" id="progressText">0 / 0 完了</div>
+</div>
+
+<div class="nav">
+  <a href="checklist.html">🏠 買い物リスト</a>
+  <a href="todo.html" class="active">📋 手続きTODO</a>
+</div>
+
+<div id="list"></div>
+
+<div class="footer">チェックは自動で同期されます</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, onValue, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAMwNBJ0cR-I1f21QIQyO5fcfqGcRU5nVU",
+  authDomain: "hime-home.firebaseapp.com",
+  databaseURL: "https://hime-home-default-rtdb.firebaseio.com",
+  projectId: "hime-home",
+  storageBucket: "hime-home.firebasestorage.app",
+  messagingSenderId: "906546077890",
+  appId: "1:906546077890:web:ca99a075a0895a451d1b5b"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const todoRef = ref(db, 'todo');
+
+const data = [
+  {
+    phase: "before",
+    phaseLabel: "引越し前にやること",
+    emoji: "🏛️",
+    name: "役所手続き（旧住所）",
+    items: [
+      { label: "転出届を提出", note: "役所窓口・郵送・マイナポータルで手続き可能", deadline: "引越し14日前〜当日" },
+      { label: "国民健康保険の資格喪失手続き", note: "社会保険加入者は不要。転出届と同時に手続き可能", deadline: "引越し前" },
+    ]
+  },
+  {
+    phase: "before",
+    phaseLabel: "",
+    emoji: "📬",
+    name: "住所変更通知（引越し前）",
+    items: [
+      { label: "郵便局に転居届を提出", note: "郵便局窓口またはe転居（Web）で申込。1年間旧住所宛の郵便が転送される" },
+    ]
+  },
+  {
+    phase: "after",
+    phaseLabel: "引越し後にやること",
+    emoji: "🏛️",
+    name: "役所手続き（新住所）",
+    items: [
+      { label: "転入届を提出", note: "転出証明書・本人確認書類・印鑑を持参。同一市区町村内の場合は転居届のみ", deadline: "引越し後14日以内" },
+      { label: "マイナンバーカードの住所変更", note: "転入届と同時に窓口で手続き可能。90日以内に行わないと失効", deadline: "引越し後14日以内" },
+      { label: "印鑑登録（新住所）", note: "役所窓口で登録。実印が必要な手続きがある場合は早めに" },
+    ]
+  },
+  {
+    phase: "after",
+    phaseLabel: "",
+    emoji: "💡",
+    name: "ライフライン（新居）",
+    items: [
+      { label: "電気の使用開始手続き", note: "ブレーカーを上げて電気使用申込書を投函" },
+      { label: "ガスの開栓手続き", note: "ガス会社へ連絡し立会い日を予約" },
+      { label: "水道の使用開始手続き", note: "水道局へ連絡" },
+      { label: "インターネットの開通手続き", note: "工事日の調整が必要な場合があるため早めに" },
+    ]
+  },
+  {
+    phase: "after",
+    phaseLabel: "",
+    emoji: "🪪",
+    name: "身分証明書・免許証",
+    items: [
+      { label: "運転免許証の住所変更", note: "新住所管轄の警察署または運転免許センターで手続き。新住所確認書類が必要", deadline: "速やかに" },
+      { label: "パスポートの住所変更", note: "パスポートセンターで記載事項変更申請。次回更新まで裏面に新住所シールを貼付" },
+    ]
+  },
+  {
+    phase: "after",
+    phaseLabel: "",
+    emoji: "🏦",
+    name: "金融・保険",
+    items: [
+      { label: "銀行口座の住所変更", note: "各銀行のアプリ・Web・窓口で手続き" },
+      { label: "クレジットカードの住所変更", note: "カード裏面の電話番号またはWebで手続き" },
+    ]
+  },
+  {
+    phase: "after",
+    phaseLabel: "",
+    emoji: "📱",
+    name: "各種サービス",
+    items: [
+      { label: "携帯電話・スマホの住所変更", note: "各キャリアのアプリまたは店舗で手続き" },
+      { label: "ネット通販・サブスクの住所変更", note: "Amazon・楽天などの配送先住所を変更" },
+    ]
+  },
+];
+
+function makeKey(catName, label) {
+  return ('todo_' + catName + '_' + label).replace(/[.#$[\]/\s]/g, '_');
+}
+
+let state = {};
+
+function updateProgress() {
+  let total = 0, checked = 0;
+  data.forEach(cat => cat.items.forEach(item => {
+    total++;
+    if (state[makeKey(cat.name, item.label)]) checked++;
+  }));
+  const pct = total ? Math.round(checked / total * 100) : 0;
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressText').textContent = checked + ' / ' + total + ' 完了';
+  data.forEach((cat, ci) => {
+    const done = cat.items.filter(i => state[makeKey(cat.name, i.label)]).length;
+    const badge = document.getElementById('badge' + ci);
+    if (badge) {
+      badge.textContent = done + '/' + cat.items.length;
+      badge.className = 'cat-badge' + (done === cat.items.length ? ' done' : '');
+    }
+  });
+}
+
+function renderAll() {
+  const container = document.getElementById('list');
+  container.innerHTML = '';
+  let lastPhase = '';
+  data.forEach((cat, ci) => {
+    if (cat.phaseLabel) {
+      const lbl = document.createElement('div');
+      lbl.className = 'phase-label phase-' + cat.phase;
+      lbl.textContent = cat.phaseLabel;
+      container.appendChild(lbl);
+    }
+    const div = document.createElement('div');
+    div.className = 'category';
+    const done = cat.items.filter(i => state[makeKey(cat.name, i.label)]).length;
+    const hdr = document.createElement('div');
+    hdr.className = 'category-header';
+    hdr.innerHTML = `<span class="cat-emoji">${cat.emoji}</span><span class="cat-name">${cat.name}</span><span class="cat-badge${done === cat.items.length ? ' done' : ''}" id="badge${ci}">${done}/${cat.items.length}</span><span class="cat-chevron open" id="chv${ci}">▼</span>`;
+    const itemsDiv = document.createElement('div');
+    itemsDiv.className = 'items open';
+    cat.items.forEach(item => {
+      const key = makeKey(cat.name, item.label);
+      const checked = !!state[key];
+      const row = document.createElement('div');
+      row.className = 'item';
+      row.innerHTML = `
+        <div class="checkbox${checked ? ' checked' : ''}" id="cb_${key}"></div>
+        <div class="item-text">
+          <div class="item-label${checked ? ' checked' : ''}" id="lbl_${key}">${item.label}</div>
+          ${item.note ? `<div class="item-note">${item.note}</div>` : ''}
+          ${item.deadline ? `<div class="deadline">⏰ ${item.deadline}</div>` : ''}
+        </div>`;
+      row.addEventListener('click', () => {
+        const newVal = !state[key];
+        state[key] = newVal;
+        document.getElementById('cb_' + key).className = 'checkbox' + (newVal ? ' checked' : '');
+        document.getElementById('lbl_' + key).className = 'item-label' + (newVal ? ' checked' : '');
+        updateProgress();
+        const dot = document.getElementById('syncDot');
+        dot.className = 'sync-dot syncing';
+        document.getElementById('syncText').textContent = '同期中...';
+        const updates = {};
+        updates[key] = newVal;
+        update(todoRef, updates).then(() => {
+          dot.className = 'sync-dot connected';
+          document.getElementById('syncText').textContent = '同期済み';
+        });
+      });
+      itemsDiv.appendChild(row);
+    });
+    hdr.addEventListener('click', () => {
+      const open = !itemsDiv.classList.contains('open');
+      itemsDiv.classList.toggle('open', open);
+      document.getElementById('chv' + ci).className = 'cat-chevron' + (open ? ' open' : '');
+    });
+    div.appendChild(hdr);
+    div.appendChild(itemsDiv);
+    container.appendChild(div);
+  });
+  updateProgress();
+}
+
+onValue(todoRef, (snapshot) => {
+  state = snapshot.val() || {};
+  const dot = document.getElementById('syncDot');
+  dot.className = 'sync-dot connected';
+  document.getElementById('syncText').textContent = '同期済み・リアルタイム更新中';
+  renderAll();
+});
+</script>
+</body>
+</html>
